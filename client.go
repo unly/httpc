@@ -1,6 +1,7 @@
 package httpc
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -86,6 +87,20 @@ func (c *Client) DoReq(req *http.Request, opts ...RespOption) (*http.Response, e
 
 func (c *Client) JSON(req *http.Request, obj any, opts ...RespOption) (*http.Response, error) {
 	return c.DoReq(req, append([]RespOption{WithJSON(obj)}, opts...)...)
+}
+
+func (c *Client) Stream(req *http.Request, w io.Writer) (int64, error) {
+	resp, err := c.Do(req)
+	if err != nil {
+		return 0, err
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	r := bufio.NewReader(resp.Body)
+	return io.Copy(w, r)
 }
 
 func (c *Client) Unwrap() *http.Client {
