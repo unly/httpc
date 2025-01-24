@@ -70,7 +70,7 @@ func TestWithCookieJar(t *testing.T) {
 func TestWithTimeout(t *testing.T) {
 	t.Run("timeout", func(t *testing.T) {
 		s := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-			time.Sleep(10 * time.Nanosecond)
+			time.Sleep(10 * time.Millisecond)
 		}))
 		defer s.Close()
 		client := New(WithTimeout(1))
