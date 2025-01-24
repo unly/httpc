@@ -45,23 +45,21 @@ func WithErrorHandler(h ErrorHandler) Option {
 
 func WithHeaders(h http.Header) Option {
 	return WithLayer(func(base http.RoundTripper) http.RoundTripper {
-		return &HeaderLayer{
+		return &headerLayer{
 			base:    base,
 			headers: h,
 		}
 	})
 }
 
-type HeaderLayer struct {
+type headerLayer struct {
 	base    http.RoundTripper
 	headers http.Header
 }
 
-func (h *HeaderLayer) RoundTrip(req *http.Request) (*http.Response, error) {
+func (h *headerLayer) RoundTrip(req *http.Request) (*http.Response, error) {
 	for k, values := range h.headers {
-		for _, v := range values {
-			req.Header.Add(k, v)
-		}
+		req.Header[k] = append(req.Header[k], values...)
 	}
 
 	return h.base.RoundTrip(req)
