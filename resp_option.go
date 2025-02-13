@@ -10,7 +10,9 @@ import (
 
 // RespOption is an option to handle a successful http.Response pointer.
 // Aborts if the first option returns an error. The response's body is
-// already read and closed. The read data is passed as parameter.
+// already read and closed. The read data is passed as parameter. The
+// body parameter should not be stored, but rather copied if needed. It
+// must not be stored in combination with the WithMemoryPooling Option.
 type RespOption func(resp *http.Response, body []byte) error
 
 // WithJSON unmarshalls the body of a successful http.Response into the

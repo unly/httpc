@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -37,6 +38,11 @@ type (
 		// Timeout for each outgoing HTTP request. A value of 0 means no timeout.
 		// Defaults to DefaultTimeout. Can be set via WithTimeout.
 		Timeout time.Duration
+		// MemoryPooling enables the use of a memory pool to hold buffers for
+		// reading in the HTTP bodies. This feature can result in performance
+		// increases but does not set the http.Response body back after reading.
+		// Defaults to false. Can be set via WithMemoryPooling.
+		MemoryPooling bool
 
 		layers      []Layer
 		respOptions []RespOption
@@ -66,6 +72,12 @@ func New(opts ...ClientOption) *Client {
 	return client
 }
 
+var memPool = sync.Pool{
+	New: func() any {
+		return make([]byte, 0, 1024)
+	},
+}
+
 // DoReq wraps the standard implementation of Do(). The response body is read
 // in full and will be closed. For non-closed http.Response see Do or Stream.
 // Both the http.Response and the read in body serve as input for the given
@@ -76,12 +88,18 @@ func (c *Client) DoReq(req *http.Request, opts ...RespOption) (*http.Response, e
 		return resp, err
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	var body []byte
+	if c.cfg.MemoryPooling {
+		body, err = readRespBody(resp, memPool.Get().([]byte))
+		defer memPool.Put(body[:0])
+	} else {
+		body, err = io.ReadAll(resp.Body)
+		defer setResponseBody(resp, body)
+	}
 	_ = resp.Body.Close()
 	if err != nil {
 		return resp, err
 	}
-	defer setResponseBody(resp, body)
 
 	var errs []error
 	for _, opt := range c.cfg.respOptions {
@@ -176,4 +194,25 @@ func newDefaultClient() *Client {
 
 func setResponseBody(resp *http.Response, body []byte) {
 	resp.Body = io.NopCloser(bytes.NewReader(body))
+}
+
+func readRespBody(resp *http.Response, b []byte) ([]byte, error) {
+	if resp.ContentLength > 0 && resp.ContentLength > int64(cap(b)) {
+		b = make([]byte, 0, resp.ContentLength)
+	}
+
+	for {
+		n, err := resp.Body.Read(b[len(b):cap(b)])
+		b = b[:len(b)+n]
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return b, err
+		}
+
+		if len(b) == cap(b) {
+			b = append(b, 0)[:len(b)]
+		}
+	}
 }

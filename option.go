@@ -72,6 +72,15 @@ func (h *headerLayer) RoundTrip(req *http.Request) (*http.Response, error) {
 	return h.base.RoundTrip(req)
 }
 
+// WithMemoryPooling enables the memory pooling feature to reuse
+// byte slices to read in HTTP bodies. This might reduce pressure on
+// the garbage collector.
+func WithMemoryPooling() ClientOption {
+	return func(cfg *Config) {
+		cfg.MemoryPooling = true
+	}
+}
+
 // WithRespOption adds a default response option used in every
 // Client.DoReq call before the furtherly passed response options.
 func WithRespOption(opt RespOption) ClientOption {
