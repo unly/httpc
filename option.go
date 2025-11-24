@@ -1,49 +1,56 @@
 package httpc
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 )
 
-func WithCheckRedirect(fn func(req *http.Request, via []*http.Request) error) Option {
+// ClientOption function to modify the Config when creating or updating
+// a Client.
+type ClientOption func(cfg *Config)
+
+// WithCheckRedirect sets the redirect function for the http.Client.
+// Defaults to nil.
+func WithCheckRedirect(fn func(req *http.Request, via []*http.Request) error) ClientOption {
 	return func(cfg *Config) {
 		cfg.CheckRedirect = fn
 	}
 }
 
-func WithCookieJar(jar http.CookieJar) Option {
+// WithCookieJar sets the cookie jar implementation for the http.Client.
+// Defaults to nil.
+func WithCookieJar(jar http.CookieJar) ClientOption {
 	return func(cfg *Config) {
 		cfg.Jar = jar
 	}
 }
 
-func WithTimeout(t time.Duration) Option {
+// WithTimeout sets the timeout used for every HTTP request. Defaults to
+// DefaultTimeout.
+func WithTimeout(t time.Duration) ClientOption {
 	return func(cfg *Config) {
 		cfg.Timeout = t
 	}
 }
 
-func WithTransport(t *http.Transport) Option {
+// WithTransport sets the http.Transport user for every HTTP request.
+// Defaults to DefaultTransport.
+func WithTransport(t *http.Transport) ClientOption {
 	return func(cfg *Config) {
 		cfg.Transport = t
 	}
 }
 
-func WithLayer(l Layer) Option {
+// WithLayer adds a new Layer to the stack of layers executed for every
+// HTTP request.
+func WithLayer(l Layer) ClientOption {
 	return func(cfg *Config) {
 		cfg.layers = append(cfg.layers, l)
 	}
 }
 
-func WithErrorHandler(h ErrorHandler) Option {
-	return func(cfg *Config) {
-		cfg.errorHandler = h
-	}
-}
-
-func WithHeaders(h http.Header) Option {
+// WithHeaders adds the given headers to every outgoing call by default.
+func WithHeaders(h http.Header) ClientOption {
 	return WithLayer(func(base http.RoundTripper) http.RoundTripper {
 		return &headerLayer{
 			base:    base,
@@ -65,39 +72,10 @@ func (h *headerLayer) RoundTrip(req *http.Request) (*http.Response, error) {
 	return h.base.RoundTrip(req)
 }
 
-func WithCustomJSONError[E error]() Option {
-	return WithErrorHandler(func(c *Client, _ *http.Response, body []byte) error {
-		var err E
-		parseErr := c.cfg.JsonUnmarshal(body, &err)
-		if parseErr != nil {
-			return parseErr
-		}
-
-		return err
-	})
-}
-
-func WithJSONError() Option {
-	return WithCustomJSONError[JSONErrorBody]()
-}
-
-func WithBytesError() Option {
-	return WithErrorHandler(bytesErrorHandler)
-}
-
-func bytesErrorHandler(_ *Client, _ *http.Response, body []byte) error {
-	return BytesErrorBody(body)
-}
-
-type JSONErrorBody map[string]any
-
-func (e JSONErrorBody) Error() string {
-	encoded, _ := json.Marshal(e)
-	return fmt.Sprintf("http body: %s", encoded)
-}
-
-type BytesErrorBody []byte
-
-func (e BytesErrorBody) Error() string {
-	return fmt.Sprintf("http body: %s", string(e))
+// WithRespOption adds a default response option used in every
+// Client.DoReq call before the furtherly passed response options.
+func WithRespOption(opt RespOption) ClientOption {
+	return func(cfg *Config) {
+		cfg.respOptions = append(cfg.respOptions, opt)
+	}
 }

@@ -3,7 +3,7 @@ package httpc
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -37,12 +37,9 @@ type (
 		// Timeout for each outgoing HTTP request. A value of 0 means no timeout.
 		// Defaults to DefaultTimeout. Can be set via WithTimeout.
 		Timeout time.Duration
-		// JsonUnmarshal unmarshal function to decode JSON payload into an object.
-		// Defaults to json.Unmarshal.
-		JsonUnmarshal JsonUnmarshaler
 
-		layers       []Layer
-		errorHandler ErrorHandler
+		layers      []Layer
+		respOptions []RespOption
 	}
 
 	// Client the HTTP client wraps an existing http.Client with some helper
@@ -56,30 +53,14 @@ type (
 		cfg Config
 	}
 
-	// JsonUnmarshaler decode the given JSON data into the given object.
-	JsonUnmarshaler func(data []byte, obj any) error
-
 	// Layer is a function wo wrap one http.RoundTripper into the next. The
 	// given base must be executed.
 	Layer func(base http.RoundTripper) http.RoundTripper
-
-	// ErrorHandler this function will be called when the client was able to
-	// successfully perform an HTTP call, yet the response call was not within
-	// the 200 range. The returned error will be returned to the caller.
-	ErrorHandler func(c *Client, resp *http.Response, body []byte) error
-
-	// Option function to modify the Config when creating or updating a client.
-	Option func(cfg *Config)
-
-	// RespOption is an option to handle a successful http.Response pointer.
-	// Aborts if the first option returns an error. The response's body is
-	// already read and closed. The read data is passed as parameter.
-	RespOption func(c *Client, resp *http.Response, body []byte) error
 )
 
-// New creates a new Client with the defaults in Config. More Option can be
+// New creates a new Client with the defaults in Config. More ClientOption can be
 // provided to adjust the default config.
-func New(opts ...Option) *Client {
+func New(opts ...ClientOption) *Client {
 	client := newDefaultClient()
 	client.applyOptions(opts)
 	return client
@@ -88,8 +69,7 @@ func New(opts ...Option) *Client {
 // DoReq wraps the standard implementation of Do(). The response body is read
 // in full and will be closed. For non-closed http.Response see Do or Stream.
 // Both the http.Response and the read in body serve as input for the given
-// RespOption. All non 2xx responses will be sent to the error handler of the
-// Client.
+// RespOption.
 func (c *Client) DoReq(req *http.Request, opts ...RespOption) (*http.Response, error) {
 	resp, err := c.Do(req)
 	if err != nil {
@@ -103,18 +83,22 @@ func (c *Client) DoReq(req *http.Request, opts ...RespOption) (*http.Response, e
 	}
 	defer setResponseBody(resp, body)
 
-	if resp.StatusCode >= 400 {
-		return resp, c.cfg.errorHandler(c, resp, body)
-	}
-
-	for _, opt := range opts {
-		err = opt(c, resp, body)
+	var errs []error
+	for _, opt := range c.cfg.respOptions {
+		err = opt(resp, body)
 		if err != nil {
-			return resp, err
+			errs = append(errs, err)
 		}
 	}
 
-	return resp, nil
+	for _, opt := range opts {
+		err = opt(resp, body)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return resp, errors.Join(errs...)
 }
 
 // JSON is a wrapper for DoReq in combination with the WithJSON option.
@@ -145,13 +129,13 @@ func (c *Client) Unwrap() *http.Client {
 }
 
 // AddOptions add more options to the current Client.
-func (c *Client) AddOptions(opts ...Option) {
+func (c *Client) AddOptions(opts ...ClientOption) {
 	c.applyOptions(opts)
 }
 
 // Extend creates a new Client based on the Config of the current with the
-// optional given Option.
-func (c *Client) Extend(opts ...Option) *Client {
+// optional given ClientOption.
+func (c *Client) Extend(opts ...ClientOption) *Client {
 	client := &Client{
 		cfg: c.cfg,
 	}
@@ -159,12 +143,12 @@ func (c *Client) Extend(opts ...Option) *Client {
 	return client
 }
 
-func (c *Client) applyOptions(opts []Option) {
+func (c *Client) applyOptions(opts []ClientOption) {
 	for _, opt := range opts {
 		opt(&c.cfg)
 	}
 
-	var rt http.RoundTripper = c.cfg.Transport
+	rt := c.getTransport()
 	for _, l := range c.cfg.layers {
 		rt = l(rt)
 	}
@@ -177,13 +161,15 @@ func (c *Client) applyOptions(opts []Option) {
 	}
 }
 
+func (c *Client) getTransport() http.RoundTripper {
+	return c.cfg.Transport
+}
+
 func newDefaultClient() *Client {
 	return &Client{
 		cfg: Config{
-			Timeout:       DefaultTimeout,
-			Transport:     DefaultTransport,
-			JsonUnmarshal: json.Unmarshal,
-			errorHandler:  bytesErrorHandler,
+			Timeout:   DefaultTimeout,
+			Transport: DefaultTransport,
 		},
 	}
 }
