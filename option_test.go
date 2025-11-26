@@ -2,8 +2,6 @@ package httpc
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +10,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestWithCheckRedirect(t *testing.T) {
@@ -116,6 +113,7 @@ func TestWithLayer(t *testing.T) {
 		client := New(WithLayer(l))
 
 		resp, err := client.Get("example.com")
+		defer resp.Body.Close()
 
 		assert.NoError(t, err)
 		assert.Equal(t, emptyResponse, resp)
@@ -132,135 +130,9 @@ func TestWithHeaders(t *testing.T) {
 			"Key": {"hello", "world"},
 		}))
 
-		_, err := client.Get(s.URL)
+		resp, err := client.Get(s.URL)
+		defer resp.Body.Close()
 
 		assert.NoError(t, err)
-	})
-}
-
-type CustomJSONError struct {
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
-}
-
-func (c *CustomJSONError) Error() string {
-	return fmt.Sprintf("Custom JSON error: FirstName: %s, LastName: %s", c.FirstName, c.LastName)
-}
-
-func TestWithCustomJSONError(t *testing.T) {
-	t.Run("json error", func(t *testing.T) {
-		s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
-			rw.WriteHeader(http.StatusBadRequest)
-			_, err := rw.Write([]byte(`{"firstName":"john","lastName":"doe"}`))
-			require.NoError(t, err)
-		}))
-		defer s.Close()
-		client := New(WithCustomJSONError[*CustomJSONError]())
-		req, _ := http.NewRequest(http.MethodGet, s.URL, nil)
-
-		_, err := client.DoReq(req)
-
-		assert.Error(t, err)
-		got := &CustomJSONError{}
-		assert.ErrorAs(t, err, &got)
-		assert.Equal(t, "john", got.FirstName)
-	})
-
-	t.Run("invalid json error", func(t *testing.T) {
-		s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
-			rw.WriteHeader(http.StatusBadRequest)
-			_, err := rw.Write([]byte(`{"firstName":42,"lastName":"doe"}`))
-			require.NoError(t, err)
-		}))
-		defer s.Close()
-		client := New(WithCustomJSONError[*CustomJSONError]())
-		req, _ := http.NewRequest(http.MethodGet, s.URL, nil)
-
-		_, err := client.DoReq(req)
-
-		assert.Error(t, err)
-		got := &CustomJSONError{}
-		assert.False(t, errors.As(err, &got))
-	})
-
-	t.Run("empty json error", func(t *testing.T) {
-		s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
-			rw.WriteHeader(http.StatusBadRequest)
-		}))
-		defer s.Close()
-		client := New(WithCustomJSONError[*CustomJSONError]())
-		req, _ := http.NewRequest(http.MethodGet, s.URL, nil)
-
-		_, err := client.DoReq(req)
-
-		assert.Error(t, err)
-	})
-}
-
-func TestWithJSONError(t *testing.T) {
-	t.Run("json error", func(t *testing.T) {
-		s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
-			rw.WriteHeader(http.StatusBadRequest)
-			_, err := rw.Write([]byte(`{"hello":"world"}`))
-			require.NoError(t, err)
-		}))
-		defer s.Close()
-		client := New(WithJSONError())
-		req, _ := http.NewRequest(http.MethodGet, s.URL, nil)
-
-		_, err := client.DoReq(req)
-
-		assert.Error(t, err)
-		var got JSONErrorBody
-		assert.ErrorAs(t, err, &got)
-		assert.Equal(t, "world", got["hello"])
-	})
-
-	t.Run("empty json error", func(t *testing.T) {
-		s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
-			rw.WriteHeader(http.StatusBadRequest)
-		}))
-		defer s.Close()
-		client := New(WithJSONError())
-		req, _ := http.NewRequest(http.MethodGet, s.URL, nil)
-
-		_, err := client.DoReq(req)
-
-		assert.Error(t, err)
-	})
-}
-
-func TestWithBytesError(t *testing.T) {
-	t.Run("error message", func(t *testing.T) {
-		s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
-			rw.WriteHeader(http.StatusBadRequest)
-			_, err := rw.Write([]byte(`hello world`))
-			require.NoError(t, err)
-		}))
-		defer s.Close()
-		client := New(WithBytesError())
-		req, _ := http.NewRequest(http.MethodGet, s.URL, nil)
-
-		_, err := client.DoReq(req)
-
-		assert.Error(t, err)
-		var got BytesErrorBody
-		assert.ErrorAs(t, err, &got)
-		assert.Equal(t, []byte("hello world"), []byte(got))
-	})
-
-	t.Run("empty json error", func(t *testing.T) {
-		s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
-			rw.WriteHeader(http.StatusBadRequest)
-		}))
-		defer s.Close()
-		client := New(WithBytesError())
-		req, _ := http.NewRequest(http.MethodGet, s.URL, nil)
-
-		_, err := client.DoReq(req)
-
-		assert.Error(t, err)
-		var got BytesErrorBody
-		assert.ErrorAs(t, err, &got)
 	})
 }

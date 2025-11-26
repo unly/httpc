@@ -40,7 +40,7 @@ func TestClient_DoReq(t *testing.T) {
 		req, err := http.NewRequest(http.MethodGet, s.URL, nil)
 		require.NoError(t, err)
 
-		resp, err := client.DoReq(req)
+		resp, err := client.DoReq(req, WithNon2xxError())
 
 		assert.Error(t, err)
 		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
@@ -60,7 +60,7 @@ func TestClient_JSON(t *testing.T) {
 		req, err := http.NewRequest(http.MethodGet, s.URL, nil)
 		require.NoError(t, err)
 
-		var res TestStruct
+		var res testStruct
 		_, err = client.JSON(req, &res)
 
 		assert.NoError(t, err)
@@ -105,6 +105,7 @@ func TestClient_Unwrap(t *testing.T) {
 		client := New(WithHeaders(headers)).Unwrap()
 
 		resp, err := client.Get(s.URL)
+		defer resp.Body.Close()
 
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
