@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/quic-go/quic-go/http3"
 )
 
 const DefaultTimeout = 30 * time.Second
@@ -27,8 +29,13 @@ type (
 	Config struct {
 		// Transport a pointer to the underlying http.Transport. This is used as
 		// the base for the http.Client and the http.RoundTripper. Defaults to
-		// DefaultTransport. Can
+		// DefaultTransport. Can be set via WithTransport.
 		Transport *http.Transport
+		// H3Transport is an optional pointer to a http3.Transport. If this is
+		// set the Client attempts to try h3 connections first. Based on the domain
+		// the Client stores if the domain supports h3 or not. Can be set via
+		// WithH3Transport.
+		H3Transport *http3.Transport
 		// CheckRedirect redirecting logic as defined in the http.Client to
 		// determine redirects. Defaults to nil. Can be set via WithCheckRedirect.
 		CheckRedirect func(req *http.Request, via []*http.Request) error
@@ -43,6 +50,8 @@ type (
 		// increases but does not set the http.Response body back after reading.
 		// Defaults to false. Can be set via WithMemoryPooling.
 		MemoryPooling bool
+		// Shutdowns slice of shutdown functions executed on Client.Close call.
+		Shutdowns []func() error
 
 		layers      []Layer
 		respOptions []RespOption
@@ -84,7 +93,7 @@ var memPool = sync.Pool{
 // RespOption.
 func (c *Client) DoReq(req *http.Request, opts ...RespOption) (*http.Response, error) {
 	resp, err := c.Do(req)
-	if err != nil {
+	if err != nil || resp == nil {
 		return resp, err
 	}
 
@@ -128,7 +137,7 @@ func (c *Client) JSON(req *http.Request, obj any, opts ...RespOption) (*http.Res
 // io.Writer.
 func (c *Client) Stream(req *http.Request, w io.Writer) (int64, error) {
 	resp, err := c.Do(req)
-	if err != nil {
+	if err != nil || resp == nil {
 		return 0, err
 	}
 
@@ -161,6 +170,20 @@ func (c *Client) Extend(opts ...ClientOption) *Client {
 	return client
 }
 
+// Close will close all shutdown hooks attached to Config.Shutdowns and
+// return the combined error. The Client should not be used after calling
+// this function.
+func (c *Client) Close() error {
+	var errs []error
+	for _, fn := range c.cfg.Shutdowns {
+		if err := fn(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
 func (c *Client) applyOptions(opts []ClientOption) {
 	for _, opt := range opts {
 		opt(&c.cfg)
@@ -180,7 +203,15 @@ func (c *Client) applyOptions(opts []ClientOption) {
 }
 
 func (c *Client) getTransport() http.RoundTripper {
-	return c.cfg.Transport
+	if c.cfg.H3Transport == nil {
+		return c.cfg.Transport
+	}
+
+	return &transport{
+		Transport:   c.cfg.Transport,
+		h3Transport: c.cfg.H3Transport,
+		h3Support:   make(map[string]h3Status),
+	}
 }
 
 func newDefaultClient() *Client {

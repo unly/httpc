@@ -111,3 +111,21 @@ func TestClient_Unwrap(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	})
 }
+
+func TestClient_Close(t *testing.T) {
+	t.Run("no options", func(t *testing.T) {
+		client := New()
+
+		assert.NoError(t, client.Close())
+	})
+
+	t.Run("returns error", func(t *testing.T) {
+		client := New(func(cfg *Config) {
+			cfg.Shutdowns = append(cfg.Shutdowns, func() error {
+				return assert.AnError
+			})
+		})
+
+		assert.ErrorIs(t, client.Close(), assert.AnError)
+	})
+}

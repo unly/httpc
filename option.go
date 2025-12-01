@@ -3,6 +3,8 @@ package httpc
 import (
 	"net/http"
 	"time"
+
+	"github.com/quic-go/quic-go/http3"
 )
 
 // ClientOption function to modify the Config when creating or updating
@@ -39,6 +41,21 @@ func WithTransport(t *http.Transport) ClientOption {
 	return func(cfg *Config) {
 		cfg.Transport = t
 	}
+}
+
+// WithH3Transport sets an optional h3 transport to use for HTTP 3
+// UDP connections. This is an experimental feature.
+func WithH3Transport(t *http3.Transport) ClientOption {
+	return func(cfg *Config) {
+		cfg.H3Transport = t
+		cfg.Shutdowns = append(cfg.Shutdowns, t.Close)
+	}
+}
+
+// WithHttp3 sets WithH3Transport with an empty http3.Transport. This is
+// an experimental feature.
+func WithHttp3() ClientOption {
+	return WithH3Transport(&http3.Transport{})
 }
 
 // WithLayer adds a new Layer to the stack of layers executed for every
