@@ -83,7 +83,8 @@ func New(opts ...ClientOption) *Client {
 
 var memPool = sync.Pool{
 	New: func() any {
-		return make([]byte, 0, 1024)
+		s := make([]byte, 0, 1024)
+		return &s
 	},
 }
 
@@ -99,8 +100,13 @@ func (c *Client) DoReq(req *http.Request, opts ...RespOption) (*http.Response, e
 
 	var body []byte
 	if c.cfg.MemoryPooling {
-		body, err = readRespBody(resp, memPool.Get().([]byte))
-		defer memPool.Put(body[:0])
+		ptr := memPool.Get().(*[]byte)
+		*ptr, err = readRespBody(resp, *ptr)
+		body = *ptr
+		defer func() {
+			*ptr = (*ptr)[:0]
+			memPool.Put(ptr)
+		}()
 	} else {
 		body, err = io.ReadAll(resp.Body)
 		defer setResponseBody(resp, body)
