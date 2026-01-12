@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
@@ -15,6 +16,7 @@ type transport struct {
 
 	h3Transport *http3.Transport
 	h3Support   map[string]h3Status
+	mu          sync.RWMutex
 }
 
 type h3Status uint8
@@ -28,7 +30,7 @@ const (
 var _ http.RoundTripper = (*transport)(nil)
 
 func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	switch t.h3Support[req.URL.Host] {
+	switch t.getH3Status(req.URL.Host) {
 	case h3StatusSupported:
 		return t.h3Transport.RoundTrip(req)
 	case h3StatusNotSupported:
@@ -47,7 +49,7 @@ func (t *transport) defaultCall(req *http.Request) (*http.Response, error) {
 	}
 
 	if strings.Contains(resp.Header.Get("Alt-Svc"), "h3") {
-		t.h3Support[req.URL.Host] = h3StatusAltSvc
+		t.setH3Status(req.URL.Host, h3StatusAltSvc)
 	}
 
 	return resp, nil
@@ -57,18 +59,30 @@ func (t *transport) tryHttp3(req *http.Request) (*http.Response, error) {
 	clonedReq := req.Clone(req.Context())
 	resp, err := t.h3Transport.RoundTrip(req)
 	if err == nil {
-		t.h3Support[req.URL.Host] = h3StatusSupported
+		t.setH3Status(req.URL.Host, h3StatusSupported)
 		return resp, nil
 	}
 
 	var idleErr *quic.IdleTimeoutError
 	if errors.As(err, &idleErr) {
-		t.h3Support[req.URL.Host] = h3StatusNotSupported
+		t.setH3Status(req.URL.Host, h3StatusNotSupported)
 	}
 	var netError net.Error
 	if errors.As(err, &netError) && netError.Timeout() {
-		t.h3Support[req.URL.Host] = h3StatusNotSupported
+		t.setH3Status(req.URL.Host, h3StatusNotSupported)
 	}
 
 	return t.Transport.RoundTrip(clonedReq)
+}
+
+func (t *transport) getH3Status(host string) h3Status {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.h3Support[host]
+}
+
+func (t *transport) setH3Status(host string, status h3Status) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.h3Support[host] = status
 }

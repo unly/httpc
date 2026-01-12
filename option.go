@@ -82,11 +82,12 @@ type headerLayer struct {
 }
 
 func (h *headerLayer) RoundTrip(req *http.Request) (*http.Response, error) {
+	newReq := req.Clone(req.Context())
 	for k, values := range h.headers {
-		req.Header[k] = append(req.Header[k], values...)
+		newReq.Header[k] = append(newReq.Header[k], values...)
 	}
 
-	return h.base.RoundTrip(req)
+	return h.base.RoundTrip(newReq)
 }
 
 // WithMemoryPooling enables the memory pooling feature to reuse
