@@ -129,3 +129,46 @@ func TestClient_Close(t *testing.T) {
 		assert.ErrorIs(t, client.Close(), assert.AnError)
 	})
 }
+
+func TestClient_Extend(t *testing.T) {
+	t.Run("extend and modify", func(t *testing.T) {
+		c1 := New(WithHeaders(http.Header{"key1": []string{"value1"}}))
+		c2 := c1.Extend(WithHeaders(http.Header{"key2": []string{"value2"}}))
+		c3 := c1.Extend(WithHeaders(http.Header{"key3": []string{"value3"}}))
+
+		s1 := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
+			assert.Equal(t, "value1", req.Header.Get("key1"))
+			assert.Equal(t, "", req.Header.Get("key2"))
+			assert.Equal(t, "", req.Header.Get("key3"))
+		}))
+		defer s1.Close()
+
+		s2 := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
+			assert.Equal(t, "value1", req.Header.Get("key1"))
+			assert.Equal(t, "value2", req.Header.Get("key2"))
+			assert.Equal(t, "", req.Header.Get("key3"))
+		}))
+		defer s2.Close()
+
+		s3 := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
+			assert.Equal(t, "value1", req.Header.Get("key1"))
+			assert.Equal(t, "", req.Header.Get("key2"))
+			assert.Equal(t, "value3", req.Header.Get("key3"))
+		}))
+		defer s3.Close()
+
+		req1, err := http.NewRequest(http.MethodGet, s1.URL, nil)
+		require.NoError(t, err)
+		req2, err := http.NewRequest(http.MethodGet, s2.URL, nil)
+		require.NoError(t, err)
+		req3, err := http.NewRequest(http.MethodGet, s3.URL, nil)
+		require.NoError(t, err)
+
+		_, err = c1.DoReq(req1)
+		assert.NoError(t, err)
+		_, err = c2.DoReq(req2)
+		assert.NoError(t, err)
+		_, err = c3.DoReq(req3)
+		assert.NoError(t, err)
+	})
+}

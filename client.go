@@ -68,10 +68,21 @@ type (
 		cfg Config
 	}
 
-	// Layer is a function wo wrap one http.RoundTripper into the next. The
+	// Layer is a function that wraps one http.RoundTripper into the next. The
 	// given base must be executed.
 	Layer func(base http.RoundTripper) http.RoundTripper
 )
+
+func (c Config) clone() Config {
+	cfg := c
+	cfg.Shutdowns = make([]func() error, len(c.Shutdowns))
+	copy(cfg.Shutdowns, c.Shutdowns)
+	cfg.layers = make([]Layer, len(c.layers))
+	copy(cfg.layers, c.layers)
+	cfg.respOptions = make([]RespOption, len(c.respOptions))
+	copy(cfg.respOptions, c.respOptions)
+	return cfg
+}
 
 // New creates a new Client with the defaults in Config. More ClientOption can be
 // provided to adjust the default config.
@@ -170,7 +181,7 @@ func (c *Client) AddOptions(opts ...ClientOption) {
 // optional given ClientOption.
 func (c *Client) Extend(opts ...ClientOption) *Client {
 	client := &Client{
-		cfg: c.cfg,
+		cfg: c.cfg.clone(),
 	}
 	client.applyOptions(opts)
 	return client
@@ -239,6 +250,9 @@ func readRespBody(resp *http.Response, b []byte) ([]byte, error) {
 	}
 
 	for {
+		if len(b) == cap(b) {
+			b = append(b, 0)[:len(b)]
+		}
 		n, err := resp.Body.Read(b[len(b):cap(b)])
 		b = b[:len(b)+n]
 		if err != nil {
@@ -246,10 +260,6 @@ func readRespBody(resp *http.Response, b []byte) ([]byte, error) {
 				err = nil
 			}
 			return b, err
-		}
-
-		if len(b) == cap(b) {
-			b = append(b, 0)[:len(b)]
 		}
 	}
 }
