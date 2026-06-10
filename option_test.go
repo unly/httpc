@@ -172,8 +172,10 @@ func TestWithH3Transport(t *testing.T) {
 		addr, cleanup := startH3Server(t, tlsConfig)
 		defer cleanup()
 
+		tlsConfig2, err := generateTLSConfig(t)
+		require.NoError(t, err)
 		port, _ := strconv.Atoi(strings.Split(addr, ":")[1])
-		_, cleanup2 := startH12Server(t, tlsConfig, port)
+		_, cleanup2 := startH12Server(t, tlsConfig2, port)
 		defer cleanup2()
 
 		tr := &http3.Transport{
